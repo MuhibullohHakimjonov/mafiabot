@@ -1,17 +1,13 @@
 import asyncio
-
-from aiogram import Router, types, F, Bot, Dispatcher
+from aiogram import Router, types, F, Bot
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardButton, ChatMemberUpdated
+from aiogram.types import InlineKeyboardButton, ChatMemberUpdated, InlineKeyboardMarkup
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import delete
-from sqlalchemy.orm import joinedload
-
-from config import ADMIN_ID, BOT_USERNAME
-from keyboard import time_selection_keyboard, game_time_keyboard, admin_panel_keyboard, \
-    user_menu_keyboard
+from config import ADMIN_ID
+from keyboard import game_time_keyboard, admin_panel_keyboard, add_bot_to_group_button
 from models import User, AsyncSessionLocal, Game, PlayerGame, Group
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -23,45 +19,49 @@ players_today = {}
 
 class RegisterState(StatesGroup):
     waiting_for_name = State()
-    waiting_for_time = State()
-
-
-async def get_user(telegram_id: int, session: AsyncSession):
-    result = await session.execute(select(User).where(User.telegram_id == telegram_id))
-    return result.scalars().first()
-
-
-def add_bot_to_group_button(bot_username: str):
-    builder = InlineKeyboardBuilder()
-    builder.button(
-        text="➕ Add Bot as Admin",
-        url=f"https://t.me/{bot_username}?startgroup&admin=1"
-    )
-    return builder.as_markup()
 
 
 @router.message(Command("start"))
-async def start(message: types.Message):
-    if message.from_user.id == ADMIN_ID:
-        await message.answer(
-            "Hello, Admin! Choose an option:",
-            reply_markup=admin_panel_keyboard()
-        )
-    else:
-        if message.chat.type == "private":
+async def start(message: types.Message, state: FSMContext):
+    telegram_id = message.from_user.id
+    bot_username = (await message.bot.get_me()).username
+
+    async with get_db() as db:
+        result = await db.execute(select(User).where(User.telegram_id == telegram_id))
+        existing_user = result.scalars().first()
+
+    if existing_user:
+        if telegram_id == ADMIN_ID:
+            await message.answer("👑 Welcome, Admin!", reply_markup=admin_panel_keyboard())
+        else:
             await message.answer(
-                "To use this bot, add it to a group **with admin permissions**:",
-                reply_markup=add_bot_to_group_button(BOT_USERNAME)
+                "👋 Welcome back!",
+                reply_markup=add_bot_to_group_button(bot_username)
             )
-        await message.answer("Select Menu", reply_markup=user_menu_keyboard()
-                             )
+    else:
+        await message.answer("👋 Welcome! Please type your name to register:")
+        await state.set_state(RegisterState.waiting_for_name)
+
+
+@router.message(RegisterState.waiting_for_name)
+async def register_user(message: types.Message, state: FSMContext):
+    telegram_id = message.from_user.id
+    user_name = message.text.strip()
+
+    async with get_db() as db:
+        new_user = User(telegram_id=telegram_id, name=user_name)
+        db.add(new_user)
+        await db.commit()
+
+    await state.clear()
+
+    await message.answer(f"✅ Welcome, {user_name}! You are now registered.")
 
 
 # 🤖 BOT handlers ------------------------------------------------------
 
 @router.my_chat_member()
 async def on_bot_status_update(event: ChatMemberUpdated, bot: Bot, session: AsyncSession):
-    """Handles when the bot is added or removed from a group."""
     chat_id = event.chat.id
 
     if event.new_chat_member.status in ["administrator", "creator"]:
@@ -77,20 +77,17 @@ async def on_bot_status_update(event: ChatMemberUpdated, bot: Bot, session: Asyn
             await session.commit()
 
     elif event.new_chat_member.status in ["kicked", "left"]:
-        # Bot was removed from the group → Delete from database
         print(f"🚨 Bot was removed from group {chat_id}, deleting from database.")
         await session.execute(delete(Group).where(Group.id == chat_id))
         await session.commit()
 
     else:
-        # If bot was added but not as an admin, inform users and delete the message after a delay
         warning_msg = await bot.send_message(chat_id, "⚠️ Please promote me to admin to start a game!")
         await asyncio.sleep(10)
         await bot.delete_message(chat_id, warning_msg.message_id)
 
 
 async def is_bot_admin(chat_id: int, bot: Bot) -> bool:
-    """Check if the bot is an admin in the given chat."""
     bot_member = await bot.get_chat_member(chat_id, bot.id)
     return bot_member.status in ["administrator", "creator"]
 
@@ -106,30 +103,17 @@ async def start_game(message: types.Message, bot: Bot):
     await message.answer("🎭 The Mafia game is starting!")
 
 
-@router.message(F.text == "Register")
-async def register(message: types.Message, state: FSMContext):
-    # Prompt the user to type their name
-    await message.answer("Please type your name:")
-    await state.set_state(RegisterState.waiting_for_name)
-
-
 @router.message(RegisterState.waiting_for_name)
 async def save_name(message: types.Message, state: FSMContext):
     telegram_id = message.from_user.id
-    name = message.text
+    name = message.text.strip()
 
     async with get_db() as db:
-        result = await db.execute(select(User).where(User.telegram_id == telegram_id))
-        existing_user = result.scalars().first()
+        new_user = User(telegram_id=telegram_id, name=name)
+        db.add(new_user)
+        await db.commit()
 
-        if existing_user:
-            await message.answer("You are already registered!")
-        else:
-            # Save the new user
-            new_user = User(telegram_id=telegram_id, name=name)
-            db.add(new_user)
-            await db.commit()
-            await message.answer(f"Thank you, {name}! You have been registered.")
+    await message.answer(f"Thank you, {name}! You are now registered.")
     await state.clear()
 
 
@@ -147,42 +131,189 @@ async def admin_no(callback: types.CallbackQuery):
 
 @router.callback_query(F.data.startswith("time_"))
 async def set_game_time(callback: types.CallbackQuery):
-    """Handles game time selection, saves the game, and notifies users."""
     time_slot = callback.data.split("_")[1]
 
+    # Create new game in the database
     async with AsyncSessionLocal() as session:
-        # Save the new game
         new_game = Game(time_slot=time_slot)
         session.add(new_game)
-        await session.commit()  # Commit to generate game ID
-
-        # Fetch groups to notify
+        await session.commit()
         group_result = await session.execute(select(Group))
         groups = group_result.scalars().all()
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Join", callback_data=f"join_yes_{new_game.id}"),
+                InlineKeyboardButton(text="❌ No", callback_data=f"join_no_{new_game.id}"),
+            ]
+        ]
+    )
 
-    # Notify all groups
+    # Send message to all groups with rate limit handling
     for group in groups:
         try:
-            await callback.bot.send_message(
-                group.id,
-                f"📢 A new Mafia game is scheduled at {time_slot}! Join using the bot. @hwhambot"
+            game_message = await callback.bot.send_message(
+                chat_id=group.id,
+                text=f"📢 **A new Mafia game is scheduled at {time_slot}!** Will you join?",
+                reply_markup=keyboard
             )
-        except Exception as e:
-            print(f"❌ Failed to send message to group {group.id}: {e}")
 
+            # Pin the message
+            await callback.bot.pin_chat_message(
+                chat_id=group.id,
+                message_id=game_message.message_id,
+                disable_notification=True  # Avoid notification spam
+            )
+
+        except Exception as e:
+            print(f"❌ Failed to send/pin message in group {group.id}: {e}")
+            continue
+        await asyncio.sleep(0.05)
     await callback.message.answer(f"✅ Game scheduled at {time_slot}!")
     await callback.answer()
 
 
+async def refresh_game_message(callback: types.CallbackQuery, game_id: int):
+    async with AsyncSessionLocal() as session:
+        game = await session.get(Game, game_id)
+        if not game:
+            await callback.answer("❌ Game not found.")
+            return
+        result = await session.execute(
+            select(User.name, PlayerGame.status)
+            .join(PlayerGame, User.telegram_id == PlayerGame.player_id)
+            .where(PlayerGame.game_id == game_id)
+        )
+        players = result.all()
+
+    joined_players = [f"✅ {p[0]}" for p in players if p[1] == "joined"]
+    declined_players = [f"❌ {p[0]}" for p in players if p[1] == "declined"]
+
+    joined_text = "\n".join(joined_players) if joined_players else "No players joined yet."
+    declined_text = "\n".join(declined_players) if declined_players else "No players declined yet."
+
+    new_text = f"""
+📢 **Mafia Game Scheduled!**  
+🕒 **Time Slot:** {game.time_slot}
+
+**Joined Players:**
+{joined_text}
+
+**Declined Players:**
+{declined_text}
+    """.strip()
+
+    if callback.message.text.strip() == new_text:
+        await callback.answer("ℹ️ The message is already up to date.")
+        return
+
+    await callback.message.edit_text(new_text, reply_markup=callback.message.reply_markup)
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("join_yes_"))
+async def join_yes(callback: types.CallbackQuery):
+    """Handles when a user confirms participation."""
+    game_id = int(callback.data.split("_")[2])
+    user_id = callback.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        # ✅ Check if the game still exists
+        game = await session.get(Game, game_id)
+        if not game:
+            await callback.answer("❌ This game has ended.", show_alert=True)
+            return
+
+        # ✅ Check if user is registered
+        result = await session.execute(select(User).where(User.telegram_id == user_id))
+        user = result.scalars().first()
+
+        if not user:
+            await callback.answer("⚠️ You need to register first! Use /start.", show_alert=True)
+            return
+
+        # ✅ Check if the user already responded
+        result = await session.execute(
+            select(PlayerGame).where(PlayerGame.game_id == game_id, PlayerGame.player_id == user_id)
+        )
+        existing_entry = result.scalars().first()
+
+        if existing_entry and existing_entry.status == "joined":
+            await callback.answer("ℹ️ You have already joined this game.", show_alert=True)
+            return
+
+        if not existing_entry:
+            new_player = PlayerGame(game_id=game_id, player_id=user_id, status="joined")
+            session.add(new_player)
+        else:
+            existing_entry.status = "joined"
+
+        await session.commit()
+
+        await callback.bot.send_message(
+            ADMIN_ID, f"✅ {user.name} has joined the game at {game.time_slot}."
+        )
+
+    # ✅ Refresh game message dynamically
+    await refresh_game_message(callback, game_id)
+    await callback.answer("✅ You have joined the game!")
+
+
+@router.callback_query(F.data.startswith("join_no_"))
+async def join_no(callback: types.CallbackQuery):
+    """Handles when a user declines participation."""
+    game_id = int(callback.data.split("_")[2])
+    user_id = callback.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        # ✅ Check if the game still exists
+        game = await session.get(Game, game_id)
+        if not game:
+            await callback.answer("❌ This game has ended.", show_alert=True)
+            return
+
+        # ✅ Check if user is registered
+        result = await session.execute(select(User).where(User.telegram_id == user_id))
+        user = result.scalars().first()
+
+        if not user:
+            await callback.answer("⚠️ You need to register first! Use /start.", show_alert=True)
+            return
+
+        # ✅ Check if the user already responded
+        result = await session.execute(
+            select(PlayerGame).where(PlayerGame.game_id == game_id, PlayerGame.player_id == user_id)
+        )
+        existing_entry = result.scalars().first()
+
+        if existing_entry and existing_entry.status == "declined":
+            await callback.answer("ℹ️ You have already declined this game.", show_alert=True)
+            return
+
+        if not existing_entry:
+            new_player = PlayerGame(game_id=game_id, player_id=user_id, status="declined")
+            session.add(new_player)
+        else:
+            existing_entry.status = "declined"
+
+        await session.commit()
+
+        await callback.bot.send_message(
+            ADMIN_ID, f"❌ {user.name} has declined to join the game at {game.time_slot}."
+        )
+    await refresh_game_message(callback, game_id)
+    await callback.answer("❌ You declined the game.")
+
+
 @router.message(F.text == "📜 View Players")
 async def select_game(message: types.Message):
-    """Admin selects a game to view participants."""
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(Game).where(Game.is_active == True))
         active_games = result.scalars().all()
 
     if not active_games:
-        await message.answer("❌ No active games available.")
+        await message.answer("❌ No active games available.", reply_markup=admin_panel_keyboard())
         return
 
     keyboard = InlineKeyboardBuilder()
@@ -194,31 +325,36 @@ async def select_game(message: types.Message):
 
 @router.callback_query(F.data.startswith("view_game_"))
 async def show_game_players(callback: types.CallbackQuery):
-    """Displays players who joined a specific game."""
     game_id = int(callback.data.split("_")[2])
 
     async with AsyncSessionLocal() as session:
-        # Fetch game with players
+        # Fetch players and filter by their status
         result = await session.execute(
-            select(Game)
-            .options(joinedload(Game.player_games).joinedload(PlayerGame.player))
-            .where(Game.id == game_id)
+            select(User.name, PlayerGame.status)
+            .join(PlayerGame, User.telegram_id == PlayerGame.player_id)
+            .where(PlayerGame.game_id == game_id)
         )
-        game = result.scalars().first()
+        players = result.all()
 
-        if not game:
-            await callback.message.answer("❌ Game not found.")
-            return
+    joined_players = [f"✅ {p[0]}" for p in players if p[1] == "joined"]
+    declined_players = [f"❌ {p[0]}" for p in players if p[1] == "declined"]
 
-        players = [pg.player for pg in game.player_games]
+    joined_text = "\n".join(joined_players) if joined_players else "No players joined yet."
+    declined_text = "\n".join(declined_players) if declined_players else "No players declined yet."
 
-    if not players:
-        await callback.message.answer(f"⚠️ No players joined the {game.time_slot} game.")
-        return
+    new_text = f"""
+📢 **A new Mafia game is scheduled!**
 
-    player_details = "\n".join([f"👤 {player.name}" for player in players])
+**Joined Players:**
+{joined_text}
 
-    await callback.message.answer(f"📜 **Players for {game.time_slot}:**\n{player_details}")
+**Declined Players:**
+{declined_text}
+    """.strip()
+
+    # Update the message
+    await callback.message.edit_text(new_text, reply_markup=callback.message.reply_markup)
+
     await callback.answer()
 
 
@@ -254,87 +390,10 @@ async def delete_game(callback: types.CallbackQuery):
         if not game:
             await callback.message.answer("❌ Game not found.")
             return
-
-        # Manually delete associated PlayerGame entries
         await session.execute(delete(PlayerGame).where(PlayerGame.game_id == game_id))
-        await session.commit()  # Commit before deleting Game
-
-        # Now delete the game itself
+        await session.commit()
         await session.delete(game)
         await session.commit()
 
     await callback.message.answer(f"✅ Game at {game.time_slot} has been deleted.")
     await callback.answer()
-
-
-# 📌 USER REGISTRATION & GAME PARTICIPATION ----------------------------------------
-
-
-@router.message(F.text == "Games")
-async def show_games(message: types.Message):
-    async with AsyncSessionLocal() as session:
-        # Fetch active games
-        result = await session.execute(select(Game).where(Game.is_active == True))
-        active_games = result.scalars().all()
-
-    if not active_games:
-        await message.answer("No active games available.")
-        return
-
-    # Create a keyboard with available games
-    builder = InlineKeyboardBuilder()
-    for game in active_games:
-        builder.button(text=f"Game at {game.time_slot}", callback_data=f"select_game_{game.id}")
-    builder.adjust(1)  # Arrange buttons in one column
-
-    await message.answer("Select a game:", reply_markup=builder.as_markup())
-
-
-@router.callback_query(F.data.startswith("select_game_"))
-async def handle_game_selection(callback: types.CallbackQuery):
-    game_id = int(callback.data.split("_")[2])
-
-    async with AsyncSessionLocal() as session:
-        # Fetch the selected game
-        game = await session.get(Game, game_id)
-        if not game:
-            await callback.message.answer("Game not found.")
-            return
-
-        # Prompt the user to choose a time slot
-        await callback.message.answer(
-            f"Select a time slot for the game at {game.time_slot}:",
-            reply_markup=time_selection_keyboard()
-        )
-        await callback.answer()
-
-
-@router.callback_query(F.data.startswith("game_time_"))
-async def handle_game_time_selection(callback: types.CallbackQuery):
-    time_slot = callback.data.split("_")[2]
-    telegram_id = callback.from_user.id
-
-    async with AsyncSessionLocal() as session:
-        # Fetch the user
-        user = await get_user(telegram_id, session)
-        if not user:
-            await callback.message.answer("You are not registered! Click /start to join the game.")
-            return
-
-        # Fetch the active game
-        active_game = await session.execute(select(Game).where(Game.is_active == True))
-        active_game = active_game.scalars().first()
-
-        if active_game:
-            player_game = PlayerGame(player_id=telegram_id, game_id=active_game.id)
-            session.add(player_game)
-            await session.commit()
-
-        # Notify the admin
-        await callback.bot.send_message(
-            ADMIN_ID,
-            f"✅ {user.name} will participate in the game at {time_slot}!"
-        )
-
-        await callback.message.answer(f"✅ You have joined the game at {time_slot}!")
-        await callback.answer()

@@ -32,9 +32,10 @@ class Game(Base):
     player_games = relationship(
         "PlayerGame",
         back_populates="game",
-        cascade="all, delete-orphan",  # Automatically delete related PlayerGame entries
-        passive_deletes=True,  # Ensure ON DELETE CASCADE works in the database
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
+    group_id = Column(Integer, nullable=False)
 
 
 class PlayerGame(Base):
@@ -43,6 +44,7 @@ class PlayerGame(Base):
     id = Column(Integer, primary_key=True, index=True)
     player_id = Column(BigInteger, ForeignKey("users.telegram_id", ondelete="CASCADE"),
                        nullable=False)
+    status = Column(String, nullable=False)
     game_id = Column(Integer, ForeignKey("game.id", ondelete="CASCADE"), nullable=False)
     player = relationship("User", back_populates="player_games")
     game = relationship("Game", back_populates="player_games")
