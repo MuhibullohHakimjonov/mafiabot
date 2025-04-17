@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from handlers import router
 from config import BOT_TOKEN, ADMIN_ID, DATABASE_URL
 from keyboard import admin_decision_keyboard
-from middlewares.db_middleware import DbSessionMiddleware
+from db_middleware import DbSessionMiddleware
 
 import asyncio
 import logging
