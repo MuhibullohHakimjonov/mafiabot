@@ -14,11 +14,9 @@ from middlewares.db_middleware import DbSessionMiddleware
 import asyncio
 import logging
 
-# Настройка базы данных
-engine = create_async_engine(DATABASE_URL, echo=True)  # Enable echo for debugging SQL queries
+engine = create_async_engine(DATABASE_URL, echo=True)
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
-# Инициализация планировщика
 scheduler = AsyncIOScheduler()
 
 
@@ -41,31 +39,17 @@ def setup_scheduler(bot: Bot):
 
 
 async def main():
-    # Настройка логирования
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
-
-    # Инициализация бота
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-
-    # Инициализация диспетчера
     dp = Dispatcher(storage=MemoryStorage())
-
-    # Подключаем middleware для передачи session
     dp.update.middleware(DbSessionMiddleware(session_factory=async_session_factory))
-
-    # Подключаем роутеры
     dp.include_router(router)
-
-    # Запускаем планировщик
     setup_scheduler(bot)
 
-    # Устанавливаем команды
     await bot.set_my_commands([BotCommand(command="start", description="Start the bot")])
-
-    # Запускаем бота
     await dp.start_polling(bot, allowed_updates=["message", "chat_member", "my_chat_member", "callback_query"])
 
 

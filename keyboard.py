@@ -1,9 +1,5 @@
-import types
-
-from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
-from aiogram.types import InlineKeyboardButton, KeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
-
-from config import BOT_USERNAME
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardButton, KeyboardButton, ReplyKeyboardMarkup
 
 
 def admin_decision_keyboard():
@@ -47,9 +43,12 @@ def time_selection_keyboard():
     return builder.as_markup()
 
 
-def user_menu_keyboard():
-    builder = ReplyKeyboardBuilder()
-    builder.button(text="Games")
-    builder.button(text="Register")
-    builder.adjust(2)
-    return builder.as_markup(resize_keyboard=True)
+def add_bot_to_group_button(bot_username: str):
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="➕ Add Bot as Admin",
+        url=f"https://t.me/{bot_username}?startgroup&admin=1"
+    )
+    return builder.as_markup()
+
+
