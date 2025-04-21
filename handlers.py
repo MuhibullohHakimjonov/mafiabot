@@ -133,52 +133,68 @@ async def admin_no(callback: types.CallbackQuery):
 async def set_game_time(callback: types.CallbackQuery):
     time_slot = callback.data.split("_")[1]
 
-    # Create new game in the database
     async with AsyncSessionLocal() as session:
-        new_game = Game(time_slot=time_slot)
-        session.add(new_game)
-        await session.commit()
         group_result = await session.execute(select(Group))
         groups = group_result.scalars().all()
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Join", callback_data=f"join_yes_{new_game.id}"),
-                InlineKeyboardButton(text="❌ No", callback_data=f"join_no_{new_game.id}"),
+
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="✅ Join", callback_data="join_yes_{}"),
+                    InlineKeyboardButton(text="❌ No", callback_data="join_no_{}"),
+                ]
             ]
-        ]
-    )
+        )
 
-    # Send message to all groups with rate limit handling
-    for group in groups:
-        try:
-            game_message = await callback.bot.send_message(
-                chat_id=group.id,
-                text=f"📢 **A new Mafia game is scheduled at {time_slot}!** Will you join?",
-                reply_markup=keyboard
+        for group in groups:
+            new_game = Game(time_slot=time_slot, group_id=group.id)
+            session.add(new_game)
+            await session.flush()
+            game_keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="✅ Join", callback_data=f"join_yes_{new_game.id}"),
+                        InlineKeyboardButton(text="❌ No", callback_data=f"join_no_{new_game.id}"),
+                    ]
+                ]
             )
 
-            # Pin the message
-            await callback.bot.pin_chat_message(
-                chat_id=group.id,
-                message_id=game_message.message_id,
-                disable_notification=True  # Avoid notification spam
-            )
+            try:
+                game_message = await callback.bot.send_message(
+                    chat_id=group.id,
+                    text=f"📢 **A new Mafia game is scheduled at {time_slot}!** Will you join?",
+                    reply_markup=game_keyboard
+                )
 
-        except Exception as e:
-            print(f"❌ Failed to send/pin message in group {group.id}: {e}")
-            continue
-        await asyncio.sleep(0.05)
-    await callback.message.answer(f"✅ Game scheduled at {time_slot}!")
+                await callback.bot.pin_chat_message(
+                    chat_id=group.id,
+                    message_id=game_message.message_id,
+                    disable_notification=True
+                )
+
+            except Exception as e:
+                print(f"❌ Failed to send/pin message in group {group.id}: {e}")
+                continue
+
+            await asyncio.sleep(0.05)
+
+        await session.commit()
+
+    await callback.message.answer(f"✅ Game scheduled at {time_slot} for all groups!")
     await callback.answer()
 
 
 async def refresh_game_message(callback: types.CallbackQuery, game_id: int):
     async with AsyncSessionLocal() as session:
-        game = await session.get(Game, game_id)
+        game = await session.execute(
+            select(Game).where(Game.id == game_id, Game.group_id == callback.message.chat.id)
+        )
+        game = game.scalar_one_or_none()
+
         if not game:
-            await callback.answer("❌ Game not found.")
+            await callback.answer("❌ This game has ended or doesn't belong to this group.", show_alert=True)
             return
+
         result = await session.execute(
             select(User.name, PlayerGame.status)
             .join(PlayerGame, User.telegram_id == PlayerGame.player_id)
@@ -306,29 +322,59 @@ async def join_no(callback: types.CallbackQuery):
     await callback.answer("❌ You declined the game.")
 
 
-@router.message(F.text == "📜 View Players")
-async def select_game(message: types.Message):
+@router.message(F.text == "👥 View Groups")
+async def admin_view_groups(message: types.Message):
     async with AsyncSessionLocal() as session:
-        result = await session.execute(select(Game).where(Game.is_active == True))
-        active_games = result.scalars().all()
+        result = await session.execute(select(Group))
+        groups = result.scalars().all()
 
-    if not active_games:
-        await message.answer("❌ No active games available.", reply_markup=admin_panel_keyboard())
+    if not groups:
+        await message.answer("❌ No groups found.")
         return
 
     keyboard = InlineKeyboardBuilder()
-    for game in active_games:
-        keyboard.add(InlineKeyboardButton(text=f"🎲 {game.time_slot}", callback_data=f"view_game_{game.id}"))
+    for group in groups:
+        keyboard.add(InlineKeyboardButton(
+            text=str(group.title or group.id),
+            callback_data=f"view_games_{group.id}"
+        ))
 
-    await message.answer("📌 Select a game to view participants:", reply_markup=keyboard.as_markup())
+    await message.answer("📋 Select a group:", reply_markup=keyboard.as_markup())
 
 
-@router.callback_query(F.data.startswith("view_game_"))
-async def show_game_players(callback: types.CallbackQuery):
-    game_id = int(callback.data.split("_")[2])
-
+@router.callback_query(F.data.startswith("view_games_"))
+async def admin_view_games(callback: types.CallbackQuery):
+    group_id = int(callback.data.split("_")[2])
     async with AsyncSessionLocal() as session:
-        # Fetch players and filter by their status
+        result = await session.execute(select(Game).where(Game.group_id == group_id))
+        games = result.scalars().all()
+
+    if not games:
+        await callback.message.edit_text("❌ No games in this group.")
+        return
+
+    keyboard = InlineKeyboardBuilder()
+    for game in games:
+        keyboard.add(InlineKeyboardButton(
+            text=f"{game.time_slot}",
+            callback_data=f"view_players_{game.id}"
+        ))
+    keyboard.adjust(2)
+
+    await callback.message.edit_text(
+        "🎮 Select a game to view players:", reply_markup=keyboard.as_markup()
+    )
+
+
+@router.callback_query(F.data.startswith("view_players_"))
+async def admin_view_players(callback: types.CallbackQuery):
+    game_id = int(callback.data.split("_")[2])
+    async with AsyncSessionLocal() as session:
+        game = await session.get(Game, game_id)
+        if not game:
+            await callback.answer("❌ Game not found.")
+            return
+
         result = await session.execute(
             select(User.name, PlayerGame.status)
             .join(PlayerGame, User.telegram_id == PlayerGame.player_id)
@@ -336,53 +382,47 @@ async def show_game_players(callback: types.CallbackQuery):
         )
         players = result.all()
 
-    joined_players = [f"✅ {p[0]}" for p in players if p[1] == "joined"]
-    declined_players = [f"❌ {p[0]}" for p in players if p[1] == "declined"]
+    joined = [f"✅ {p[0]}" for p in players if p[1] == "joined"]
+    declined = [f"❌ {p[0]}" for p in players if p[1] == "declined"]
 
-    joined_text = "\n".join(joined_players) if joined_players else "No players joined yet."
-    declined_text = "\n".join(declined_players) if declined_players else "No players declined yet."
+    joined_text = "\n".join(joined) or "No players joined."
+    declined_text = "\n".join(declined) or "No players declined."
 
-    new_text = f"""
-📢 **A new Mafia game is scheduled!**
+    await callback.message.edit_text(f"""
+🎮 **Game at {game.time_slot}**
 
-**Joined Players:**
+👥 **Joined:**
 {joined_text}
 
-**Declined Players:**
+🚫 **Declined:**
 {declined_text}
-    """.strip()
-
-    # Update the message
-    await callback.message.edit_text(new_text, reply_markup=callback.message.reply_markup)
-
-    await callback.answer()
+    """.strip())
 
 
 @router.message(F.text == "📌 Active Games")
 async def show_active_games(message: types.Message):
-    """Shows all active games and allows the admin to delete them."""
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(Game).where(Game.is_active == True))
         active_games = result.scalars().all()
+        result_group = await session.execute(select(Group))
+        groups = result_group.scalars().all()
 
     if not active_games:
         await message.answer("❌ No active games at the moment.")
         return
-
-    # Create an inline keyboard with delete options
     keyboard = InlineKeyboardBuilder()
     for game in active_games:
         keyboard.add(InlineKeyboardButton(
-            text=f"🗑 Delete {game.time_slot}",
+            text=f"🗑 Delete {[group.title for group in groups if group.id == game.group_id]} {game.time_slot}",
             callback_data=f"delete_game_{game.id}"
         ))
 
+    keyboard.adjust(2)
     await message.answer("📌 **Active Games:**\nSelect a game to delete:", reply_markup=keyboard.as_markup())
 
 
 @router.callback_query(F.data.startswith("delete_game_"))
 async def delete_game(callback: types.CallbackQuery):
-    """Deletes a selected game from the database."""
     game_id = int(callback.data.split("_")[2])
 
     async with AsyncSessionLocal() as session:
