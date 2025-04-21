@@ -1,0 +1,40 @@
+Index: .env
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>BOT_TOKEN=6901257804:AAFvtacFTpxuhJvypeOFYfH_3xN1lBVKWMc\r\nADMIN_ID=1380803567\r\nDATABASE_URL=postgresql+asyncpg://postgres:1234@localhost/mafia_bot_db\r\nALEMBIC_DATABASE_URL=postgresql://postgres:1234@localhost/mafia_bot_db
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.env b/.env
+--- a/.env	(revision 838ef53a08abf37ceff29b4517d01f70bd38717b)
++++ b/.env	(date 1744884937149)
+@@ -1,4 +1,5 @@
+-BOT_TOKEN=6901257804:AAFvtacFTpxuhJvypeOFYfH_3xN1lBVKWMc
++BOT_TOKEN=7058840786:AAGa-kfhq4P6kRek-rypEqmmzRHMmyLUlJ0
++BOT_USERNAME=hwhambot
+ ADMIN_ID=1380803567
+ DATABASE_URL=postgresql+asyncpg://postgres:1234@localhost/mafia_bot_db
+ ALEMBIC_DATABASE_URL=postgresql://postgres:1234@localhost/mafia_bot_db
+\ No newline at end of file
+Index: .idea/misc.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<project version=\"4\">\r\n  <component name=\"ProjectRootManager\" version=\"2\" project-jdk-name=\"Python 3.12 (mafiabot)\" project-jdk-type=\"Python SDK\" />\r\n</project>
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/misc.xml b/.idea/misc.xml
+--- a/.idea/misc.xml	(revision 838ef53a08abf37ceff29b4517d01f70bd38717b)
++++ b/.idea/misc.xml	(date 1744884937150)
+@@ -1,4 +1,10 @@
+ <?xml version="1.0" encoding="UTF-8"?>
+ <project version="4">
++  <component name="Black">
++    <option name="sdkName" value="Python 3.12 (mafiabot)" />
++  </component>
+   <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.12 (mafiabot)" project-jdk-type="Python SDK" />
++  <component name="PyCharmProfessionalAdvertiser">
++    <option name="shown" value="true" />
++  </component>
+ </project>
+\ No newline at end of file
