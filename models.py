@@ -35,7 +35,7 @@ class Game(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    group_id = Column(Integer, nullable=False)
+    group_id = Column(BigInteger, nullable=False)
 
 
 class PlayerGame(Base):

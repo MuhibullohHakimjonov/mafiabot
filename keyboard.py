@@ -26,7 +26,7 @@ def join_game_keyboard():
 def admin_panel_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📜 View Players")],
+            [KeyboardButton(text="👥 View Groups")],
             [KeyboardButton(text="📌 Active Games")]
         ],
         resize_keyboard=True
@@ -50,5 +50,3 @@ def add_bot_to_group_button(bot_username: str):
         url=f"https://t.me/{bot_username}?startgroup&admin=1"
     )
     return builder.as_markup()
-
-
