@@ -1,5 +1,27 @@
-.env
+# Python
 __pycache__/
+*.py[cod]
+.python-version
+.venv/
 venv/
 
+# Environment
+.env
+.env.local
+.env*.local
 
+# Database
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+data/
+
+# Alembic (if you want to version control migrations)
+!alembic/versions/
