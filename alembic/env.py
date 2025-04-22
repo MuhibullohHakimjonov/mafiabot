@@ -1,31 +1,26 @@
+import asyncio
 from logging.config import fileConfig
-from sqlalchemy import create_engine, pool
-from sqlalchemy.ext.asyncio import AsyncEngine
+
+from sqlalchemy.ext.asyncio import create_async_engine
 from alembic import context
 
-# Import your database models
-from models import Base  # Make sure this path is correct
-from config import DATABASE_URL  # Import your database URL
+from models import Base  # Import your Base from where models are defined
 
-# Alembic Config
+# Alembic config object
 config = context.config
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
 
-# Convert async DB URL to sync for migrations
-SYNC_DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg", "postgresql")
+# Setup Python logging
+fileConfig(config.config_file_name)
 
-# Create a synchronous engine for Alembic
-engine = create_engine(SYNC_DATABASE_URL, poolclass=pool.NullPool, future=True)
-
-# Target metadata for autogenerate support
+# Set your metadata for 'autogenerate'
 target_metadata = Base.metadata
 
 
-def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode."""
+def run_migrations_offline():
+    """Run migrations in offline mode."""
+    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=SYNC_DATABASE_URL,
+        url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -35,19 +30,29 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
-    with engine.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-        )
+async def run_migrations_online():
+    connectable = create_async_engine(
+        config.get_main_option("sqlalchemy.url"),
+        future=True,
+    )
 
-        with context.begin_transaction():
-            context.run_migrations()
+    async with connectable.connect() as connection:
+        # Run Alembic context inside a sync-compatible wrapper
+        def do_migrations(sync_connection):
+            context.configure(
+                connection=sync_connection,
+                target_metadata=target_metadata,
+                compare_type=True,
+                compare_server_default=True,
+            )
+
+            with context.begin_transaction():  # ❗️THIS is sync
+                context.run_migrations()
+
+        await connection.run_sync(do_migrations)  # Proper async->sync wrapping
 
 
 if context.is_offline_mode():
     run_migrations_offline()
 else:
-    run_migrations_online()
+    asyncio.run(run_migrations_online())
