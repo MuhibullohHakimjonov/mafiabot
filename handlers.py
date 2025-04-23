@@ -77,7 +77,6 @@ async def on_bot_status_update(event: ChatMemberUpdated, bot: Bot, session: Asyn
             await session.commit()
 
     elif event.new_chat_member.status in ["kicked", "left"]:
-        print(f"🚨 Bot was removed from group {chat_id}, deleting from database.")
         await session.execute(delete(Group).where(Group.id == chat_id))
         await session.commit()
 
