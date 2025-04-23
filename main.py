@@ -39,32 +39,40 @@ def setup_scheduler(bot: Bot):
     scheduler.start()
 
 
+import signal
+
 async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
-
-    # Setup middlewares and routes
     dp.update.middleware(DbSessionMiddleware(session_factory=async_session_factory))
     dp.include_router(router)
-
-    # Setup scheduler
     setup_scheduler(bot)
 
-    # Register shutdown hook
+    should_exit = asyncio.Event()
+
+    def _signal_handler():
+        logging.info("SIGTERM received. Preparing to shut down...")
+        should_exit.set()
+
+    # Register signal handlers
+    loop = asyncio.get_running_loop()
+    loop.add_signal_handler(signal.SIGINT, _signal_handler)
+    loop.add_signal_handler(signal.SIGTERM, _signal_handler)
+
     @dp.shutdown()
     async def on_shutdown(dispatcher: Dispatcher):
-        logging.info("Shutting down bot gracefully...")
-
-        # Shutdown APScheduler
-        logging.info("Stopping scheduler...")
+        logging.info("Gracefully shutting down scheduler and database...")
         scheduler.shutdown(wait=False)
-
-        # Dispose SQLAlchemy engine
         await engine.dispose()
-        logging.info("Database engine disposed.")
 
     await bot.set_my_commands([BotCommand(command="start", description="Start the bot")])
-    await dp.start_polling(bot, allowed_updates=["message", "chat_member", "my_chat_member", "callback_query"])
+
+    # Start polling
+    polling_task = asyncio.create_task(dp.start_polling(bot))
+    await should_exit.wait()
+    polling_task.cancel()
+    logging.info("Exiting main()")
+
 
 
 if __name__ == "__main__":
