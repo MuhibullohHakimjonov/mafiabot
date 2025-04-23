@@ -27,7 +27,6 @@ async def ask_admin(bot: Bot):
             "Are we gonna play mafia today?",
             reply_markup=admin_decision_keyboard()
         )
-        logging.info("Message sent to admin.")
     except Exception as e:
         logging.error(f"Error sending message to admin: {e}")
 
@@ -35,7 +34,6 @@ async def ask_admin(bot: Bot):
 def setup_scheduler(bot: Bot):
     scheduler.add_job(ask_admin, "interval", minutes=1, args=[bot])
     scheduler.start()
-    logging.info("Scheduler started.")
 
 
 async def main():
