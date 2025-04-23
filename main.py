@@ -14,6 +14,9 @@ from db_middleware import DbSessionMiddleware
 import asyncio
 import logging
 
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+
 engine = create_async_engine(DATABASE_URL, echo=True)
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -39,9 +42,26 @@ def setup_scheduler(bot: Bot):
 async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
+
+    # Setup middlewares and routes
     dp.update.middleware(DbSessionMiddleware(session_factory=async_session_factory))
     dp.include_router(router)
+
+    # Setup scheduler
     setup_scheduler(bot)
+
+    # Register shutdown hook
+    @dp.shutdown()
+    async def on_shutdown(dispatcher: Dispatcher):
+        logging.info("Shutting down bot gracefully...")
+
+        # Shutdown APScheduler
+        logging.info("Stopping scheduler...")
+        scheduler.shutdown(wait=False)
+
+        # Dispose SQLAlchemy engine
+        await engine.dispose()
+        logging.info("Database engine disposed.")
 
     await bot.set_my_commands([BotCommand(command="start", description="Start the bot")])
     await dp.start_polling(bot, allowed_updates=["message", "chat_member", "my_chat_member", "callback_query"])
@@ -49,3 +69,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
