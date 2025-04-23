@@ -37,7 +37,7 @@ async def ask_admin(bot: Bot):
         logging.error(f"Error sending message to admin: {e}", exc_info=True)
 
 def setup_scheduler(bot: Bot):
-    scheduler.add_job(ask_admin, "interval", minutes=1, args=[bot])
+    scheduler.add_job(ask_admin, "interval", minutes=100, args=[bot])
     scheduler.start()
 
 async def shutdown(bot: Bot, scheduler: AsyncIOScheduler):
