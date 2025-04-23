@@ -13,4 +13,4 @@ COPY . .
 
 ENV PYTHONPATH=/app
 
-CMD ["python", "main.py"]
+CMD ["sh", "start.sh"]
