@@ -6,11 +6,12 @@ services:
       - ADMIN_ID=${ADMIN_ID}
       - DATABASE_URL=${DATABASE_URL}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
       - .:/app
     restart: unless-stopped
-    stop_grace_period: 10s  
+    stop_grace_period: 10s
 
   db:
     image: postgres:13-alpine
@@ -21,7 +22,13 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5432:5432"  
+    stop_grace_period: 30s  
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:
