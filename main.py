@@ -39,7 +39,12 @@ def setup_scheduler(bot: Bot):
     scheduler.start()
 
 
-import signal
+async def shutdown(bot: Bot, scheduler: AsyncIOScheduler):
+    logging.info("Initiating shutdown...")
+    scheduler.shutdown(wait=False)  # Stop scheduler immediately
+    await bot.session.close()  # Close bot session
+    await engine.dispose()  # Close database connections
+    logging.info("Shutdown complete")
 
 async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -48,30 +53,29 @@ async def main():
     dp.include_router(router)
     setup_scheduler(bot)
 
-    should_exit = asyncio.Event()
-
-    def _signal_handler():
-        logging.info("SIGTERM received. Preparing to shut down...")
-        should_exit.set()
-
-    # Register signal handlers
-    loop = asyncio.get_running_loop()
-    loop.add_signal_handler(signal.SIGINT, _signal_handler)
-    loop.add_signal_handler(signal.SIGTERM, _signal_handler)
-
-    @dp.shutdown()
-    async def on_shutdown(dispatcher: Dispatcher):
-        logging.info("Gracefully shutting down scheduler and database...")
-        scheduler.shutdown(wait=False)
-        await engine.dispose()
-
     await bot.set_my_commands([BotCommand(command="start", description="Start the bot")])
 
-    # Start polling
-    polling_task = asyncio.create_task(dp.start_polling(bot))
-    await should_exit.wait()
-    polling_task.cancel()
-    logging.info("Exiting main()")
+    # Handle shutdown signals
+    loop = asyncio.get_event_loop()
+    tasks = []
+
+    def handle_shutdown():
+        tasks.append(loop.create_task(shutdown(bot, scheduler)))
+        for task in asyncio.all_tasks(loop):
+            if task is not asyncio.current_task():
+                task.cancel()
+        loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.stop()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, handle_shutdown)
+
+    try:
+        await dp.start_polling(bot, allowed_updates=["message", "chat_member", "my_chat_member", "callback_query"])
+    except asyncio.CancelledError:
+        logging.info("Polling cancelled")
+    finally:
+        await shutdown(bot, scheduler)
 
 
 
