@@ -1,16 +1,23 @@
-FROM python:3.9-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y libpq-dev \
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-client \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+
 COPY . .
 
-ENV PYTHONPATH=/app
 
-CMD ["sh", "start.sh"]
+COPY start.sh .
+RUN chmod +x start.sh
+
+
+CMD ["./start.sh"]
