@@ -37,19 +37,54 @@ async def ask_admin(bot: Bot):
         logging.error(f"Error sending message to admin: {e}", exc_info=True)
 
 def setup_scheduler(bot: Bot):
-    scheduler.add_job(ask_admin, "interval", minutes=100, args=[bot])
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(
+        ask_admin,
+        "interval",
+        minutes=100,
+        args=[bot],
+        misfire_grace_time=60
+    )
     scheduler.start()
+    return scheduler
 
-async def shutdown(bot: Bot, scheduler: AsyncIOScheduler):
-    logging.info("Initiating shutdown...")
+async def shutdown(bot: Bot, scheduler: AsyncIOScheduler, dp: Dispatcher):
+    logging.info("Initiating graceful shutdown...")
+    
     try:
-        scheduler.shutdown(wait=False)
-        await bot.session.close()
-        await engine.dispose()
-        logging.info("Shutdown complete")
+        await bot.delete_webhook(drop_pending_updates=True)
+        logging.info("Webhook deleted")
     except Exception as e:
-        logging.error(f"Error during shutdown: {e}")
-        
+        logging.error(f"Error deleting webhook: {e}")
+
+    try:
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
+            logging.info("Scheduler shut down")
+    except Exception as e:
+        logging.error(f"Error shutting down scheduler: {e}")
+
+    try:
+        await engine.dispose()
+        logging.info("Database engine disposed")
+    except Exception as e:
+        logging.error(f"Error disposing engine: {e}")
+
+    try:
+        await bot.session.close()
+        logging.info("Bot session closed")
+    except Exception as e:
+        logging.error(f"Error closing bot session: {e}")
+
+    try:
+        await dp.storage.close()
+        logging.info("Storage closed")
+    except Exception as e:
+        logging.error(f"Error closing storage: {e}")
+
+    logging.info("Shutdown completed successfully")
+
+
 async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
@@ -60,13 +95,13 @@ async def main():
     await bot.set_my_commands([BotCommand(command="start", description="Start the bot")])
 
     try:
-        await dp.start_polling(bot, allowed_updates=["message", "chat_member", "my_chat_member", "callback_query"])
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     except asyncio.CancelledError:
         logging.info("Polling cancelled")
     except Exception as e:
-        logging.error(f"Unexpected error: {e}")
+        logging.error(f"Fatal error: {e}")
     finally:
-        await shutdown(bot, scheduler)
+        await shutdown(bot, scheduler, dp)
 
 if __name__ == "__main__":
     try:
