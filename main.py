@@ -48,60 +48,34 @@ def setup_scheduler(bot: Bot):
     scheduler.start()
     return scheduler
 
-async def shutdown(bot: Bot, scheduler: AsyncIOScheduler, dp: Dispatcher):
-    logging.info("Initiating graceful shutdown...")
-    
-    try:
-        await bot.delete_webhook(drop_pending_updates=True)
-        logging.info("Webhook deleted")
-    except Exception as e:
-        logging.error(f"Error deleting webhook: {e}")
-
-    try:
-        if scheduler.running:
-            scheduler.shutdown(wait=False)
-            logging.info("Scheduler shut down")
-    except Exception as e:
-        logging.error(f"Error shutting down scheduler: {e}")
-
-    try:
-        await engine.dispose()
-        logging.info("Database engine disposed")
-    except Exception as e:
-        logging.error(f"Error disposing engine: {e}")
-
-    try:
-        await bot.session.close()
-        logging.info("Bot session closed")
-    except Exception as e:
-        logging.error(f"Error closing bot session: {e}")
-
-    try:
-        await dp.storage.close()
-        logging.info("Storage closed")
-    except Exception as e:
-        logging.error(f"Error closing storage: {e}")
-
-    logging.info("Shutdown completed successfully")
-
-
 async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
     dp.update.middleware(DbSessionMiddleware(session_factory=async_session_factory))
     dp.include_router(router)
-    setup_scheduler(bot)
+    scheduler = setup_scheduler(bot)
 
     await bot.set_my_commands([BotCommand(command="start", description="Start the bot")])
 
+    # Set up signal handlers
+    loop = asyncio.get_running_loop()
+    for signal_type in [signal.SIGINT, signal.SIGTERM]:
+        loop.add_signal_handler(
+            signal_type,
+            lambda: asyncio.create_task(shutdown_sequence(bot, scheduler, dp))
+    
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     except asyncio.CancelledError:
-        logging.info("Polling cancelled")
-    except Exception as e:
-        logging.error(f"Fatal error: {e}")
+        logging.info("Polling task cancelled")
     finally:
         await shutdown(bot, scheduler, dp)
+
+async def shutdown_sequence(bot: Bot, scheduler: AsyncIOScheduler, dp: Dispatcher):
+    """Handle shutdown signals"""
+    logging.info("Received shutdown signal")
+    await shutdown(bot, scheduler, dp)
+    asyncio.get_event_loop().stop()
 
 if __name__ == "__main__":
     try:
