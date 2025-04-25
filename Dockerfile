@@ -23,8 +23,9 @@ COPY . .
 
 RUN chmod +x start.sh
 
-RUN useradd -m appuser && chown -R appuser /app
-USER appuser
+RUN dos2unix entrypoint.sh && chmod +x entrypoint.sh
+
+
 
 
 CMD ["./start.sh"]
