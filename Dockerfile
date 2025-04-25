@@ -1,30 +1,30 @@
-FROM python:3.11-slim
+# Use official Python 3.12 slim base image
+FROM python:3.12-slim
 
-
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
-
-
+# Set working directory
 WORKDIR /app
 
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
     libpq-dev \
-    postgresql-client \
-    && apt-get clean \
+    dos2unix \
     && rm -rf /var/lib/apt/lists/*
 
-
+# Copy requirements file
 COPY requirements.txt .
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-
+# Copy project files
 COPY . .
 
+COPY entrypoint.sh .
 
-RUN dos2unix start.sh && chmod +x start.sh
+RUN dos2unix entrypoint.sh && chmod +x entrypoint.sh
+
+ENV PYTHONUNBUFFERED=1
 
 
-
-
-CMD ["./start.sh"]
+ENTRYPOINT ["./start.sh"]
