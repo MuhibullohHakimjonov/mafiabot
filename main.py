@@ -57,12 +57,9 @@ async def main():
 
     await bot.set_my_commands([BotCommand(command="start", description="Start the bot")])
 
-    # Set up signal handlers
     loop = asyncio.get_running_loop()
     for signal_type in [signal.SIGINT, signal.SIGTERM]:
-        loop.add_signal_handler(
-            signal_type,
-            lambda: asyncio.create_task(shutdown_sequence(bot, scheduler, dp))
+        loop.add_signal_handler(sig, _handle_signal)
     
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
