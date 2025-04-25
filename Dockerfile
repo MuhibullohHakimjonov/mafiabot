@@ -23,7 +23,7 @@ COPY . .
 
 RUN chmod +x start.sh
 
-RUN dos2unix entrypoint.sh && chmod +x entrypoint.sh
+RUN dos2unix start.sh && chmod +x start.sh
 
 
 
