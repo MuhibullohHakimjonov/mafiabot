@@ -14,69 +14,69 @@ from config import BOT_TOKEN, ADMIN_ID, DATABASE_URL
 from keyboard import admin_decision_keyboard
 from db_middleware import DbSessionMiddleware
 
-# Setup logging
+# Logging
 logging.basicConfig(level=logging.INFO)
 
-# Database setup
+# DB setup
 engine = create_async_engine(DATABASE_URL, echo=True)
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
-# Scheduler setup
-scheduler = AsyncIOScheduler()
-
+# Scheduler job
 async def ask_admin(bot: Bot):
     try:
-        logging.info(f"Sending message to ADMIN_ID: {ADMIN_ID}")
+        logging.info("Sending message to admin")
         await bot.send_message(
             ADMIN_ID,
             "Are we gonna play mafia today?",
             reply_markup=admin_decision_keyboard()
         )
-        logging.info("Message sent successfully")
     except Exception as e:
-        logging.error(f"Error sending message to admin: {e}", exc_info=True)
+        logging.error(f"Failed to send message: {e}", exc_info=True)
 
-def setup_scheduler(bot: Bot):
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(
-        ask_admin,
-        "interval",
-        minutes=100,
-        args=[bot],
-        misfire_grace_time=60
-    )
-    scheduler.start()
-    return scheduler
-
+# Main logic
 async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
+
     dp.update.middleware(DbSessionMiddleware(session_factory=async_session_factory))
     dp.include_router(router)
-    scheduler = setup_scheduler(bot)
 
+    # Set bot command
     await bot.set_my_commands([BotCommand(command="start", description="Start the bot")])
 
-    loop = asyncio.get_running_loop()
-    for signal_type in [signal.SIGINT, signal.SIGTERM]:
-        loop.add_signal_handler(signal_type, _handle_signal)
+    # Start scheduler
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(ask_admin, "interval", minutes=100, args=[bot])
+    scheduler.start()
 
-    
+    # Handle shutdown signals
+    stop_event = asyncio.Event()
+
+    def _handle_signal():
+        logging.info("Shutdown signal received")
+        stop_event.set()
+
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, _handle_signal)
+
+    # Start polling
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     except asyncio.CancelledError:
-        logging.info("Polling task cancelled")
+        logging.info("Polling cancelled")
     finally:
-        await shutdown(bot, scheduler, dp)
+        await stop_event.wait()
+        await shutdown(bot, scheduler)
 
-async def shutdown_sequence(bot: Bot, scheduler: AsyncIOScheduler, dp: Dispatcher):
-    """Handle shutdown signals"""
-    logging.info("Received shutdown signal")
-    await shutdown(bot, scheduler, dp)
-    asyncio.get_event_loop().stop()
+async def shutdown(bot: Bot, scheduler: AsyncIOScheduler):
+    logging.info("Shutting down...")
+    scheduler.shutdown(wait=False)
+    await bot.session.close()
+    logging.info("Shutdown complete")
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logging.info("Bot stopped by user")
+        logging.info("Bot stopped manually")
