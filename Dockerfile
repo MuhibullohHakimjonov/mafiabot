@@ -20,9 +20,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy project files
 COPY . .
 
-COPY entrypoint.sh .
+COPY start.sh .
 
-RUN dos2unix entrypoint.sh && chmod +x entrypoint.sh
+RUN dos2unix start.sh && chmod +x start.sh
 
 ENV PYTHONUNBUFFERED=1
 
