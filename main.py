@@ -59,7 +59,8 @@ async def main():
 
     loop = asyncio.get_running_loop()
     for signal_type in [signal.SIGINT, signal.SIGTERM]:
-        loop.add_signal_handler(sig, _handle_signal)
+        loop.add_signal_handler(signal_type, _handle_signal)
+
     
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
