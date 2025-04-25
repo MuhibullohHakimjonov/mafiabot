@@ -1,15 +1,14 @@
 #!/bin/bash
-echo "Waiting for PostgreSQL to be ready..."
-for i in {1..30}; do
-    if pg_isready -h db -p 5432 -U ${POSTGRES_USER} -d ${POSTGRES_DB}; then
-        echo "PostgreSQL is ready!"
-        break
-    fi
-    echo "Waiting for PostgreSQL ($i/30)..."
-    sleep 1
+# Wait for PostgreSQL to be ready using a Python check
+until python -c "import psycopg2; psycopg2.connect(host='$DB_HOST', port='$DB_PORT', user='$DB_USER', password='$DB_PASSWORD', dbname='$DB_NAME')" 2>/dev/null; do
+  echo "Waiting for PostgreSQL to be ready..."
+  sleep 2
 done
 
-echo "Running migrations..."
+# Run Alembic migrations
+echo "Running Alembic migrations..."
 alembic upgrade head
-echo "Starting bot..."
+
+# Start the bot
+echo "Starting the Telegram bot..."
 python main.py
