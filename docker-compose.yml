@@ -1,34 +1,35 @@
+version: '3.8'
+
 services:
   bot:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - ADMIN_ID=${ADMIN_ID}
-      - DATABASE_URL=${DATABASE_URL}
-    depends_on:
-      db:
-        condition: service_healthy
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
     volumes:
       - .:/app
+    depends_on:
+      - db
     restart: unless-stopped
-    stop_grace_period: 10s
 
   db:
-    image: postgres:13-alpine
+    image: postgres:13
     environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"  
-    stop_grace_period: 30s  
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      - "5432:5432"
+    restart: unless-stopped
 
 volumes:
   postgres_data:
