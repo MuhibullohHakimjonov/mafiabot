@@ -1,7 +1,8 @@
 import logging
+import asyncio
 from aiogram.types import Update
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
-from sqlalchemy.ext.asyncio import AsyncSession
+
 
 logging.basicConfig(level=logging.INFO)
 

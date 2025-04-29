@@ -33,7 +33,7 @@ async def ask_admin(bot: Bot):
     except Exception as e:
         logging.error(f"Failed to send message: {e}", exc_info=True)
 
-# Main logic
+
 async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
@@ -41,15 +41,13 @@ async def main():
     dp.update.middleware(DbSessionMiddleware(session_factory=async_session_factory))
     dp.include_router(router)
 
-    # Set bot command
+
     await bot.set_my_commands([BotCommand(command="start", description="Start the bot")])
 
-    # Start scheduler
     scheduler = AsyncIOScheduler()
     scheduler.add_job(ask_admin, "interval", minutes=100, args=[bot])
     scheduler.start()
 
-    # Handle shutdown signals
     stop_event = asyncio.Event()
 
     def _handle_signal():
@@ -60,7 +58,6 @@ async def main():
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, _handle_signal)
 
-    # Start polling
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     except asyncio.CancelledError:
