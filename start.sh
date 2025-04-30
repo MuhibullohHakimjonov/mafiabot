@@ -18,12 +18,13 @@ until python -c "import psycopg2; psycopg2.connect(host='${DB_HOST}', port=${DB_
   sleep 2
 done
 
-# Run migrations (skip if no migrations folder)
-if [ -d "/app/migrations" ]; then
+# Run migrations (check for /app/alembic)
+if [ -d "/app/alembic" ]; then
     echo "Running Alembic migrations..."
     alembic upgrade head
 else
-    echo "Skipping Alembic migrations (no migrations folder)"
+    echo "No alembic folder found at /app/alembic"
+    ls -la /app
 fi
 
 # Start the bot in background

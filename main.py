@@ -45,7 +45,7 @@ async def main():
     await bot.set_my_commands([BotCommand(command="start", description="Start the bot")])
 
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(ask_admin, "interval", minutes=100, args=[bot])
+    scheduler.add_job(ask_admin, "interval", minutes=240, args=[bot])
     scheduler.start()
 
     stop_event = asyncio.Event()
