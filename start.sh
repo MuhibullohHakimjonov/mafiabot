@@ -1,18 +1,35 @@
 #!/bin/bash
 set -e
 
-echo "Waiting for PostgreSQL to be ready..."
+# Function to stop the bot gracefully
+stop_bot() {
+    echo "Stopping bot gracefully..."
+    kill -TERM "$pid" 2>/dev/null
+    wait "$pid"
+    exit 0
+}
 
-until pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER"; do
+# Trap SIGTERM
+trap stop_bot SIGTERM
+
+# Wait for PostgreSQL
+until python -c "import psycopg2; psycopg2.connect(host='${DB_HOST}', port=${DB_PORT}, user='${DB_USER}', password='${DB_PASSWORD}', dbname='${DB_NAME}')" 2>/dev/null; do
+  echo "Waiting for PostgreSQL to be ready..."
   sleep 2
 done
 
-echo "PostgreSQL is ready. Running migrations..."
+# Run migrations (skip if no migrations folder)
+if [ -d "/app/migrations" ]; then
+    echo "Running Alembic migrations..."
+    alembic upgrade head
+else
+    echo "Skipping Alembic migrations (no migrations folder)"
+fi
 
-# Run Alembic migrations
-alembic upgrade head
+# Start the bot in background
+echo "Starting the Telegram bot..."
+python main.py &
+pid=$!
 
-echo "Starting the bot..."
-
-# Start the bot
-python main.py
+# Wait for the bot process
+wait "$pid"
