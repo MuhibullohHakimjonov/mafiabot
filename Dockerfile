@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 
 COPY . .
-
+COPY start.sh .
 RUN dos2unix start.sh && chmod +x start.sh
 
 ENV PYTHONUNBUFFERED=1
