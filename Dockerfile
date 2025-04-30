@@ -5,8 +5,6 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     libpq-dev \
-    postgresql-client \
-    curl \
     dos2unix \
     && rm -rf /var/lib/apt/lists/*
 
